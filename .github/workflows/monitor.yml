@@ -2,7 +2,9 @@ name: MFA D-visa monitor
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # every 10 minutes (UTC); GitHub may start runs a few minutes late
+    # Backup only: GitHub's scheduler is unreliable for frequent jobs.
+    # The main trigger is cron-job.org calling workflow_dispatch every 10 min.
+    - cron: "7,37 * * * *"
   workflow_dispatch:          # lets you run it manually from the Actions tab
     inputs:
       embassy_id:
