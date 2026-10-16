@@ -1,0 +1,30 @@
+name: MFA D-visa monitor
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # every 10 minutes (UTC); GitHub may start runs a few minutes late
+  workflow_dispatch:          # lets you run it manually from the Actions tab
+
+concurrency:
+  group: mfa-monitor
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Check booking site
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: python monitor.py --once
