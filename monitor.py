@@ -161,6 +161,29 @@ def main() -> None:
         time.sleep(max(60, sleep_s))
 
 
+def send_daily_heartbeat_if_due(services: dict[str, str], available: bool) -> None:
+    """Send one 'monitor is active' email per day.
+    The workflow restores a marker file from GitHub's cache keyed by today's date
+    (Dhaka time). If the marker exists, today's email was already sent."""
+    marker = os.environ.get("HEARTBEAT_MARKER")
+    if not marker or os.path.exists(marker):
+        return
+    now_dhaka = datetime.now(timezone.utc).astimezone(
+        __import__("zoneinfo").ZoneInfo("Asia/Dhaka"))
+    send_email(
+        "MFA monitor active: daily check-in",
+        "Your Estonia D-visa monitor is running and email alerts are working.\n\n"
+        f"First check today: {now_dhaka:%Y-%m-%d %H:%M} (Dhaka time)\n"
+        f"Embassy: New Delhi\n"
+        f"D-visa available right now: {'YES, book now: ' + URL if available else 'No'}\n"
+        f"Services listed: {len(services)}\n\n"
+        "You'll get this once a day. Slot alerts arrive separately.",
+    )
+    os.makedirs(os.path.dirname(marker) or ".", exist_ok=True)
+    with open(marker, "w") as f:
+        f.write(f"{now_dhaka:%Y-%m-%d}\n")
+
+
 def run_once() -> int:
     """Single check for GitHub Actions. Emails if D-visa is listed.
     Returns a non-zero exit code on failure, so GitHub marks the run as failed
@@ -172,13 +195,17 @@ def run_once() -> int:
             available = TARGET_SERVICE in services
             log(f"OK. {len(services)} service(s) listed. D-visa available: {available}")
             if available:
+                is_test = EMBASSY_ID != "40"
                 send_email(
-                    "D-VISA SLOT OPEN: book now",
-                    "The Long-stay visa (D-visa) option is listed for the "
+                    ("[TEST] " if is_test else "") + "D-VISA SLOT OPEN: book now",
+                    ("TEST RUN against embassy ID " + EMBASSY_ID + ", not New Delhi. "
+                     "If you got this, email alerts work.\n\n" if is_test else "")
+                    + "The Long-stay visa (D-visa) option is listed for the "
                     "Estonian Embassy in New Delhi.\n\n"
                     f"Book here: {URL}\n\n"
                     f"Services currently listed:\n- " + "\n- ".join(services.values()),
                 )
+            send_daily_heartbeat_if_due(services, available)
             return 0
         except Exception as e:
             last_err = e
