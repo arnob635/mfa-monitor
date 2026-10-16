@@ -161,5 +161,35 @@ def main() -> None:
         time.sleep(max(60, sleep_s))
 
 
+def run_once() -> int:
+    """Single check for GitHub Actions. Emails if D-visa is listed.
+    Returns a non-zero exit code on failure, so GitHub marks the run as failed
+    (GitHub emails the repo owner about failed scheduled runs)."""
+    last_err = None
+    for attempt in range(3):  # retry short network blips
+        try:
+            services = fetch_services()
+            available = TARGET_SERVICE in services
+            log(f"OK. {len(services)} service(s) listed. D-visa available: {available}")
+            if available:
+                send_email(
+                    "D-VISA SLOT OPEN: book now",
+                    "The Long-stay visa (D-visa) option is listed for the "
+                    "Estonian Embassy in New Delhi.\n\n"
+                    f"Book here: {URL}\n\n"
+                    f"Services currently listed:\n- " + "\n- ".join(services.values()),
+                )
+            return 0
+        except Exception as e:
+            last_err = e
+            log(f"Attempt {attempt + 1} failed: {e}")
+            time.sleep(20)
+    log(f"All attempts failed: {last_err}")
+    return 1
+
+
 if __name__ == "__main__":
+    import sys
+    if "--once" in sys.argv:
+        sys.exit(run_once())
     main()
