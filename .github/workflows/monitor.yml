@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "*/10 * * * *"   # every 10 minutes (UTC); GitHub may start runs a few minutes late
   workflow_dispatch:          # lets you run it manually from the Actions tab
+    inputs:
+      embassy_id:
+        description: "Embassy ID (40 = New Delhi; use 251 = Singapore to test the slot alert)"
+        required: false
+        default: "40"
 
 concurrency:
   group: mfa-monitor
@@ -23,8 +28,29 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      # Daily check-in email: remember whether today's (Dhaka date) email was sent.
+      - name: Today's date (Dhaka)
+        id: day
+        run: echo "date=$(TZ=Asia/Dhaka date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore daily check-in marker
+        id: marker
+        uses: actions/cache/restore@v4
+        with:
+          path: .heartbeat
+          key: heartbeat-${{ steps.day.outputs.date }}
+
       - name: Check booking site
         env:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          EMBASSY_ID: ${{ github.event.inputs.embassy_id || '40' }}
+          HEARTBEAT_MARKER: .heartbeat/sent
         run: python monitor.py --once
+
+      - name: Save daily check-in marker
+        if: steps.marker.outputs.cache-hit != 'true' && hashFiles('.heartbeat/sent') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .heartbeat
+          key: heartbeat-${{ steps.day.outputs.date }}
