@@ -53,6 +53,7 @@ jobs:
         env:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          FORM_NUMBER: ${{ secrets.FORM_NUMBER }}
           EMBASSY_ID: ${{ github.event.inputs.embassy_id || '40' }}
           LOOP_MINUTES: ${{ github.event.inputs.loop_minutes || '55' }}
           CHECK_INTERVAL_SEC: "60"

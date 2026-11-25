@@ -28,7 +28,7 @@ ALERT_TO = os.environ.get("ALERT_TO", GMAIL_USER)        # comma-separated OK
 
 EMBASSY_ID = os.environ.get("EMBASSY_ID", "40")          # 40 = New Delhi
 TARGET_SERVICE = os.environ.get("TARGET_SERVICE", "pikaajaline_viisa")  # D-visa
-FORM_NUMBER = os.environ.get("FORM_NUMBER", "2026439113")  # pre-filled visa application form number
+FORM_NUMBER = os.environ.get("FORM_NUMBER", "")  # set as a GitHub secret, never in this public file
 CHECK_INTERVAL_MIN = float(os.environ.get("CHECK_INTERVAL_MIN", "10"))
 HEARTBEAT_HOURS = float(os.environ.get("HEARTBEAT_HOURS", "24"))  # 0 = off
 ERROR_ALERT_AFTER = int(os.environ.get("ERROR_ALERT_AFTER", "6"))  # consecutive failures
@@ -176,7 +176,8 @@ def send_daily_heartbeat_if_due(services: dict[str, str], available: bool) -> No
         "Your Estonia D-visa monitor is running and email alerts are working.\n\n"
         f"First check today: {now_dhaka:%Y-%m-%d %H:%M} (Dhaka time)\n"
         f"Embassy: New Delhi\n"
-        f"Pre-filled form number: {FORM_NUMBER}\n"
+        + (f"Pre-filled form number: {FORM_NUMBER}\n" if FORM_NUMBER else "")
+        + 
         f"D-visa available right now: {'YES, book now: ' + URL if available else 'No'}\n"
         f"Services listed: {len(services)}\n\n"
         "You'll get this once a day. Slot alerts arrive separately.",
@@ -218,7 +219,8 @@ def slot_email(services: dict[str, str]) -> None:
         ("TEST RUN against embassy ID " + EMBASSY_ID + ", not New Delhi.\n\n" if is_test else "")
         + "The Long-stay visa (D-visa) option is listed for the "
         "Estonian Embassy in New Delhi.\n\n"
-        f"Your pre-filled form number: {FORM_NUMBER}\n\n"
+        + (f"Your pre-filled form number: {FORM_NUMBER}\n\n" if FORM_NUMBER else "")
+        + 
         f"Open this link on the computer with the booking helper installed:\n{BOOK_LINK}\n\n"
         "Services currently listed:\n- " + "\n- ".join(services.values()),
     )
