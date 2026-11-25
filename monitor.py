@@ -195,16 +195,7 @@ def run_once() -> int:
             available = TARGET_SERVICE in services
             log(f"OK. {len(services)} service(s) listed. D-visa available: {available}")
             if available:
-                is_test = EMBASSY_ID != "40"
-                send_email(
-                    ("[TEST] " if is_test else "") + "D-VISA SLOT OPEN: book now",
-                    ("TEST RUN against embassy ID " + EMBASSY_ID + ", not New Delhi. "
-                     "If you got this, email alerts work.\n\n" if is_test else "")
-                    + "The Long-stay visa (D-visa) option is listed for the "
-                    "Estonian Embassy in New Delhi.\n\n"
-                    f"Book here: {URL}\n\n"
-                    f"Services currently listed:\n- " + "\n- ".join(services.values()),
-                )
+                slot_email(services)
             send_daily_heartbeat_if_due(services, available)
             return 0
         except Exception as e:
@@ -215,8 +206,64 @@ def run_once() -> int:
     return 1
 
 
+BOOK_LINK = URL + "#autobook"   # the browser helper starts filling when it sees #autobook
+
+
+def slot_email(services: dict[str, str]) -> None:
+    is_test = EMBASSY_ID != "40"
+    send_email(
+        ("[TEST] " if is_test else "") + "D-VISA SLOT OPEN: book now",
+        ("TEST RUN against embassy ID " + EMBASSY_ID + ", not New Delhi.\n\n" if is_test else "")
+        + "The Long-stay visa (D-visa) option is listed for the "
+        "Estonian Embassy in New Delhi.\n\n"
+        f"Open this link on the computer with the booking helper installed:\n{BOOK_LINK}\n\n"
+        "Services currently listed:\n- " + "\n- ".join(services.values()),
+    )
+
+
+def run_loop(minutes: float) -> int:
+    """Check every CHECK_INTERVAL_SEC seconds for `minutes`, then exit.
+    GitHub starts the next run as soon as this one ends, so checks are continuous."""
+    interval = float(os.environ.get("CHECK_INTERVAL_SEC", "60"))
+    realert_every = float(os.environ.get("REALERT_MIN", "5")) * 60
+    end = time.time() + minutes * 60
+    last_alert = 0.0
+    was_available = False
+    failures = 0
+    ok_checks = 0
+
+    while time.time() < end:
+        started = time.time()
+        try:
+            services = fetch_services()
+            failures = 0
+            ok_checks += 1
+            available = TARGET_SERVICE in services
+            log(f"OK. {len(services)} service(s). D-visa available: {available}")
+            if available and (not was_available or started - last_alert >= realert_every):
+                slot_email(services)
+                last_alert = started
+            elif was_available and not available:
+                log("D-visa option disappeared.")
+            was_available = available
+            send_daily_heartbeat_if_due(services, available)
+        except Exception as e:
+            failures += 1
+            log(f"Check failed ({failures} in a row): {e}")
+            if failures >= ERROR_ALERT_AFTER:
+                log("Too many failures in a row, exiting so GitHub flags the run.")
+                return 1
+        # keep a steady rhythm, with a little jitter
+        time.sleep(max(5, interval - (time.time() - started) + random.uniform(-5, 5)))
+
+    log(f"Loop finished: {ok_checks} successful checks.")
+    return 0 if ok_checks else 1
+
+
 if __name__ == "__main__":
     import sys
     if "--once" in sys.argv:
         sys.exit(run_once())
+    if "--loop" in sys.argv:
+        sys.exit(run_loop(float(os.environ.get("LOOP_MINUTES", "55"))))
     main()

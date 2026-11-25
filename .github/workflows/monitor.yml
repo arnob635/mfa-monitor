@@ -1,16 +1,23 @@
 name: MFA D-visa monitor
 
+# Each run checks the site every 60 seconds for 55 minutes, then exits.
+# cron-job.org (every 10 min) keeps one run queued, so the next run starts
+# the moment the current one ends. GitHub's own schedule is a backup.
+# Queued runs that get replaced show as "cancelled" in the Actions tab: that is normal.
+
 on:
   schedule:
-    # Backup only: GitHub's scheduler is unreliable for frequent jobs.
-    # The main trigger is cron-job.org calling workflow_dispatch every 10 min.
     - cron: "7,37 * * * *"
-  workflow_dispatch:          # lets you run it manually from the Actions tab
+  workflow_dispatch:
     inputs:
       embassy_id:
         description: "Embassy ID (40 = New Delhi; use 251 = Singapore to test the slot alert)"
         required: false
         default: "40"
+      loop_minutes:
+        description: "How long this run keeps checking (minutes)"
+        required: false
+        default: "55"
 
 concurrency:
   group: mfa-monitor
@@ -19,7 +26,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 65
     steps:
       - uses: actions/checkout@v4
 
@@ -42,16 +49,18 @@ jobs:
           path: .heartbeat
           key: heartbeat-${{ steps.day.outputs.date }}
 
-      - name: Check booking site
+      - name: Check booking site every minute
         env:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           EMBASSY_ID: ${{ github.event.inputs.embassy_id || '40' }}
+          LOOP_MINUTES: ${{ github.event.inputs.loop_minutes || '55' }}
+          CHECK_INTERVAL_SEC: "60"
           HEARTBEAT_MARKER: .heartbeat/sent
-        run: python monitor.py --once
+        run: python monitor.py --loop
 
       - name: Save daily check-in marker
-        if: steps.marker.outputs.cache-hit != 'true' && hashFiles('.heartbeat/sent') != ''
+        if: always() && steps.marker.outputs.cache-hit != 'true' && hashFiles('.heartbeat/sent') != ''
         uses: actions/cache/save@v4
         with:
           path: .heartbeat
