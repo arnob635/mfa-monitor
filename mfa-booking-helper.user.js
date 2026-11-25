@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MFA Estonia D-visa booking helper
 // @namespace    arnob-mfa-helper
-// @version      1.1
+// @version      1.2
 // @description  Fills the Estonian MFA booking form fast. You tick the CAPTCHA and press the final confirm button yourself.
 // @match        https://broneering.mfa.ee/*
 // @run-at       document-idle
@@ -151,9 +151,17 @@
     const opt = [...sel.options].find((o) => o.value && norm(o.textContent).includes(want));
     return opt ? setSelect(sel, opt.value) : false;
   }
+  // Solved only when there is a real CAPTCHA answer. A CAPTCHA that hasn't loaded is NOT solved.
   function captchaSolved() {
+    if (!document.querySelector(".g-recaptcha, iframe[src*='recaptcha']")) return true;
     const r = document.querySelector('textarea[name="g-recaptcha-response"]');
-    return !r || r.value.length > 0;
+    if (r && r.value) return true;
+    try { if (window.grecaptcha && window.grecaptcha.getResponse()) return true; } catch (e) {}
+    return false;
+  }
+  let captchaWaitSince = 0;
+  function captchaLoaded() {
+    return !!document.querySelector("iframe[src*='recaptcha']");
   }
   function hasCaptcha() {
     return !!document.querySelector(".g-recaptcha, iframe[src*='recaptcha']");
@@ -277,9 +285,15 @@
     if (hasCaptcha() && !captchaSolved()) {
       const c = document.querySelector(".g-recaptcha, iframe[src*='recaptcha']");
       c.scrollIntoView({ block: "center" });
-      say("Tick \"I'm not a robot\" now.", "#8a5a00");
+      if (!captchaWaitSince) captchaWaitSince = Date.now();
+      if (!captchaLoaded() && Date.now() - captchaWaitSince > 6000) {
+        say("The CAPTCHA didn't load. Reload the page (the helper keeps going).", "#7a1f1f");
+      } else {
+        say("Tick \"I'm not a robot\" now.", "#8a5a00");
+      }
       return;
     }
+    captchaWaitSince = 0;
     const next = nextButton();
     if (next) {
       if (SETTINGS.autoNext) { say("Going to the next page..."); busyUntil = Date.now() + 5000; next.click(); }
