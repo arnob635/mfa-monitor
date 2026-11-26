@@ -1,13 +1,15 @@
 name: MFA D-visa monitor
 
-# Each run checks the site every 60 seconds for 55 minutes, then exits.
-# cron-job.org (every 10 min) keeps one run queued, so the next run starts
-# the moment the current one ends. GitHub's own schedule is a backup.
-# Queued runs that get replaced show as "cancelled" in the Actions tab: that is normal.
+# How it runs:
+# - Each run checks the site every 60 seconds for 55 minutes.
+# - When it finishes, it starts the next run itself ("chained"), so checking never stops.
+# - Outside triggers (cron-job.org, the schedule below) are only a safety net: if a
+#   monitor run is already going, they exit in a few seconds instead of queueing.
+#   No queue means no "cancelled" runs.
 
 on:
   schedule:
-    - cron: "7,37 * * * *"
+    - cron: "7,37 * * * *"   # safety net: restarts the chain if it ever breaks
   workflow_dispatch:
     inputs:
       embassy_id:
@@ -18,13 +20,47 @@ on:
         description: "How long this run keeps checking (minutes)"
         required: false
         default: "55"
+      chained:
+        description: "Internal: set by the previous run"
+        required: false
+        default: "false"
 
-concurrency:
-  group: mfa-monitor
-  cancel-in-progress: false
+permissions:
+  actions: write     # lets a run start the next one and see whether one is already running
+  contents: read
 
 jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - name: Is a monitor run already going?
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHAINED: ${{ github.event.inputs.chained || 'false' }}
+          EMBASSY: ${{ github.event.inputs.embassy_id || '40' }}
+        run: |
+          # Chained runs and test runs (another embassy) always go ahead.
+          if [ "$CHAINED" = "true" ] || [ "$EMBASSY" != "40" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          others=$(gh run list -R "$GITHUB_REPOSITORY" -w monitor.yml -L 20 \
+            --json databaseId,status \
+            --jq "[.[] | select((.status==\"in_progress\" or .status==\"queued\" or .status==\"pending\") and .databaseId != ${GITHUB_RUN_ID})] | length")
+          if [ "$others" -gt 0 ]; then
+            echo "Monitor already running, nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No monitor running, starting one."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
   check:
+    needs: guard
+    if: needs.guard.outputs.skip != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 65
     steps:
@@ -66,3 +102,10 @@ jobs:
         with:
           path: .heartbeat
           key: heartbeat-${{ steps.day.outputs.date }}
+
+      # Hand over to the next run. Test runs (another embassy) don't chain.
+      - name: Start the next run
+        if: ${{ !cancelled() && (github.event.inputs.embassy_id || '40') == '40' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run monitor.yml -R "$GITHUB_REPOSITORY" --ref main -f chained=true
